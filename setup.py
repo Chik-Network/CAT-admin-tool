@@ -6,7 +6,7 @@ with open("README.md", "rt") as fh:
     long_description = fh.read()
 
 dependencies = [
-    "chik-blockchain==1.8.6",
+    "chik-blockchain==2.1.1",
 ]
 
 dev_dependencies = [
@@ -28,7 +28,7 @@ setup(
             "unwind_the_bag = cats.unwind_the_bag:main"
         ],
     },
-    author_email="m.hauff@chik.net",
+    author_email="m.hauff@chiknetwork.com",
     setup_requires=["setuptools_scm"],
     install_requires=dependencies,
     url="https://github.com/Chik-Network",
