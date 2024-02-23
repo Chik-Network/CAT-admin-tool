@@ -55,7 +55,7 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        gh release download -R Chik-Network/test-cache ${{ env.BLOCKS_AND_PLOTS_VERSION }} --archive=tar.gz -O - | tar xzf -
+        gh release download -R Chia-Network/test-cache ${{ env.BLOCKS_AND_PLOTS_VERSION }} --archive=tar.gz -O - | tar xzf -
         mkdir "${GITHUB_WORKSPACE}/.chik"
         mv "${GITHUB_WORKSPACE}/test-cache-${{ env.BLOCKS_AND_PLOTS_VERSION }}/"* "${GITHUB_WORKSPACE}/.chik"
         find "${GITHUB_WORKSPACE}/.chik" -type f | xargs sed -i 's/\xE3\xB0\xC4\x42\x98\xFC\x1C\x14\x9A\xFB\xF4\xC8\x99\x6F\xB9\x24\x27\xAE\x41\xE4\x64\x9B\x93\x4C\xA4\x95\x99\x1B\x78\x52\xB8\x55/\x4B\x8F\x8F\x2F\x85\x2C\x0A\x89\xA0\xF9\x7A\x1B\xC9\x1F\x18\x06\xE1\xF2\xEF\xD4\x92\x4F\xC3\xA8\x2B\xEC\x9A\x7B\x31\xB6\x1F\x31/g'
