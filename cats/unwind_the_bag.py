@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Coroutine, Dict, List, Optional
 
 import click
-from blspy import G2Element
+from chik_rs import G2Element
 from chik.cmds.cmds_util import get_wallet
 from chik.rpc.full_node_rpc_client import FullNodeRpcClient
 from chik.rpc.wallet_rpc_client import WalletRpcClient

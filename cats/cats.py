@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Iterable, List, Optional, Tuple, Union
 
 import click
-from blspy import AugSchemeMPL, G2Element
+from chik_rs import AugSchemeMPL, G2Element
 from chik.cmds.cmds_util import get_wallet_client
 from chik.rpc.wallet_rpc_client import WalletRpcClient
 from chik.types.blockchain_format.program import Program

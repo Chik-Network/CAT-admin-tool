@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest_asyncio
 
 from chik.simulator.block_tools import test_constants
-from chik.simulator.setup_nodes import setup_simulators_and_wallets_service
+from chik._tests.util.setup_nodes import setup_simulators_and_wallets_service
 from chik.wallet.wallet_node import WalletNode
 from chik.wallet.wallet_node_api import WalletNodeAPI
 
