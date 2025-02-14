@@ -1,43 +1,48 @@
 #!/usr/bin/env python
 
-from setuptools import setup, find_packages
+from __future__ import annotations
 
-with open("README.md", "rt") as fh:
+from setuptools import find_packages, setup
+
+with open("README.md") as fh:
     long_description = fh.read()
 
 dependencies = [
-    "chik-blockchain==2.3.0",
+    "chik-blockchain==2.5.0",
 ]
 
 dev_dependencies = [
-    "black==23.7.0",
     "pytest",
     "pytest-asyncio",
     "pytest-env",
+    "pre-commit==4.0.1; python_version >= '3.9'",
+    "mypy==1.13.0",
+    "ruff>=0.8.1",
 ]
 
 setup(
     name="CAT_admin_tool",
-    version="0.0.1",
     author="Quexington",
     packages=find_packages(exclude=("tests",)),
     entry_points={
         "console_scripts": [
             "cats = cats.cats:main",
             "secure_the_bag = cats.secure_the_bag:main",
-            "unwind_the_bag = cats.unwind_the_bag:main"
+            "unwind_the_bag = cats.unwind_the_bag:main",
         ],
     },
     author_email="m.hauff@chiknetwork.com",
     setup_requires=["setuptools_scm"],
     install_requires=dependencies,
     url="https://github.com/Chik-Network",
-    license="https://opensource.org/licenses/Apache-2.0",
+    license="Apache-2.0",
     description="Tools to administer issuance and redemption of a Chik Asset Token or CAT",
     classifiers=[
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.6",
-        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
         "License :: OSI Approved :: Apache Software License",
         "Topic :: Security :: Cryptography",
     ],

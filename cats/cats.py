@@ -3,17 +3,16 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import click
-from chik_rs import AugSchemeMPL, G2Element
 from chik.cmds.cmds_util import get_wallet_client
 from chik.rpc.wallet_rpc_client import WalletRpcClient
 from chik.types.blockchain_format.program import Program
 from chik.types.blockchain_format.sized_bytes import bytes32
-from chik.types.spend_bundle import SpendBundle
 from chik.util.bech32m import decode_puzzle_hash
 from chik.util.byte_types import hexstr_to_bytes
 from chik.util.config import load_config
@@ -25,10 +24,11 @@ from chik.wallet.cat_wallet.cat_utils import (
     construct_cat_puzzle,
     unsigned_spend_bundle_for_spendable_cats,
 )
-from chik.wallet.util.tx_config import DEFAULT_TX_CONFIG
-from chik.util.bech32m import decode_puzzle_hash
-from chik.wallet.vc_wallet.cr_cat_drivers import ProofsChecker, construct_cr_layer
 from chik.wallet.transaction_record import TransactionRecord
+from chik.wallet.util.tx_config import DEFAULT_TX_CONFIG
+from chik.wallet.vc_wallet.cr_cat_drivers import ProofsChecker, construct_cr_layer
+from chik.wallet.wallet_spend_bundle import WalletSpendBundle
+from chik_rs import AugSchemeMPL, G2Element
 from klvm_tools.binutils import assemble
 from klvm_tools.klvmc import compile_klvm_text
 
@@ -37,14 +37,10 @@ from klvm_tools.klvmc import compile_klvm_text
 @asynccontextmanager
 async def get_context_manager(
     wallet_rpc_port: Optional[int], fingerprint: int, root_path: Path
-) -> AsyncIterator[Tuple[WalletRpcClient, int, Dict[str, Any]]]:
+) -> AsyncIterator[tuple[WalletRpcClient, int, dict[str, Any]]]:
     config = load_config(root_path, "config.yaml")
-    _wallet_rpc_port = (
-        config["wallet"]["rpc_port"] if wallet_rpc_port is None else wallet_rpc_port
-    )
-    async with get_wallet_client(
-        _wallet_rpc_port, root_path=root_path, fingerprint=fingerprint
-    ) as args:
+    wallet_rpc_port = config["wallet"]["rpc_port"] if wallet_rpc_port is None else wallet_rpc_port
+    async with get_wallet_client(wallet_rpc_port, root_path=root_path, fingerprint=fingerprint) as args:
         yield args
 
 
@@ -56,38 +52,33 @@ async def get_signed_tx(
     fee: uint64,
     root_path: Path,
 ) -> TransactionRecord:
-    async with get_context_manager(
-        wallet_rpc_port, fingerprint, root_path
-    ) as client_etc:
+    async with get_context_manager(wallet_rpc_port, fingerprint, root_path) as client_etc:
         wallet_client, _, _ = client_etc
         if wallet_client is None:
-            raise ValueError(
-                "Error getting wallet client. Make sure wallet is running."
-            )
-        return await wallet_client.create_signed_transaction(
-            [{"puzzle_hash": ph, "amount": amt}], DEFAULT_TX_CONFIG, fee=fee  # TODO: no default tx config
+            raise ValueError("Error getting wallet client. Make sure wallet is running.")
+        signed_tx = await wallet_client.create_signed_transactions(
+            [{"puzzle_hash": ph, "amount": amt}],
+            DEFAULT_TX_CONFIG,
+            fee=fee,  # TODO: no default tx config
         )
+        return signed_tx.signed_tx
 
 
 async def push_tx(
     wallet_rpc_port: Optional[int],
     fingerprint: int,
-    bundle: SpendBundle,
+    bundle: WalletSpendBundle,
     root_path: Path,
 ) -> Any:
-    async with get_context_manager(
-        wallet_rpc_port, fingerprint, root_path
-    ) as client_etc:
+    async with get_context_manager(wallet_rpc_port, fingerprint, root_path) as client_etc:
         wallet_client, _, _ = client_etc
         if wallet_client is None:
-            raise ValueError(
-                "Error getting wallet client. Make sure wallet is running."
-            )
-        return await wallet_client.push_tx(bundle)  # type: ignore[no-untyped-call]
+            raise ValueError("Error getting wallet client. Make sure wallet is running.")
+        return await wallet_client.push_tx(bundle)
 
 
 # The klvm loaders in this library automatically search for includable files in the directory './include'
-def append_include(search_paths: Iterable[str]) -> List[str]:
+def append_include(search_paths: Iterable[str]) -> list[str]:
     if search_paths:
         search_list = list(search_paths)
         search_list.append("./include")
@@ -102,11 +93,11 @@ def parse_program(program: Union[str, Program], include: Iterable[str] = []) -> 
         return program
     else:
         if "(" in program:  # If it's raw klvm
-            prog = Program.to(assemble(program))  # type: ignore[no-untyped-call]
+            prog = Program.to(assemble(program))
         elif "." not in program:  # If it's a byte string
             prog = Program.from_bytes(hexstr_to_bytes(program))
         else:  # If it's a file
-            with open(program, "r") as file:
+            with open(program) as file:
                 filestring: str = file.read()
                 if "(" in filestring:  # If it's not compiled
                     # TODO: This should probably be more robust
@@ -115,7 +106,7 @@ def parse_program(program: Union[str, Program], include: Iterable[str] = []) -> 
                             compile_klvm_text(filestring, append_include(include))  # type: ignore[no-untyped-call]
                         )
                     else:  # If it's KLVM
-                        prog = Program.to(assemble(filestring))  # type: ignore[no-untyped-call]
+                        prog = Program.to(assemble(filestring))
                 else:  # If it's serialized KLVM
                     prog = Program.from_bytes(hexstr_to_bytes(filestring))
         return prog
@@ -197,7 +188,7 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
         "Specify a list of flags to check a VC for in order to authorize this CR-CAT. "
         "Specifying this option requires a value for --authorized-providers. "
         "Cannot be used if a custom --proofs-checker is specified."
-    )
+    ),
 )
 @click.option(
     "-f",
@@ -257,17 +248,17 @@ CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 def cli(
     ctx: click.Context,
     tail: str,
-    curry: Tuple[str, ...],
+    curry: tuple[str, ...],
     solution: str,
     send_to: str,
     amount: int,
     fee: int,
-    authorized_provider: Tuple[str],
+    authorized_provider: list[str],
     proofs_checker: Optional[str],
-    cr_flag: Tuple[str],
+    cr_flag: list[str],
     fingerprint: int,
-    signature: Tuple[str, ...],
-    spend: Tuple[str, ...],
+    signature: list[str],
+    spend: list[str],
     as_bytes: bool,
     select_coin: bool,
     quiet: bool,
@@ -303,17 +294,17 @@ def cli(
 
 async def cmd_func(
     tail: str,
-    curry: Tuple[str, ...],
+    curry: tuple[str, ...],
     solution: str,
     send_to: str,
     amount: int,
     fee: int,
-    authorized_provider: Tuple[str],
+    authorized_provider: list[str],
     proofs_checker: Optional[str],
-    cr_flag: Tuple[str],
+    cr_flag: list[str],
     fingerprint: int,
-    signature: Tuple[str, ...],
-    spend: Tuple[str, ...],
+    signature: list[str],
+    spend: list[str],
     as_bytes: bool,
     select_coin: bool,
     quiet: bool,
@@ -321,33 +312,31 @@ async def cmd_func(
     root_path: str,
     wallet_rpc_port: Optional[int],
 ) -> None:
-    tail = parse_program(tail)
-    curried_args = [assemble(arg) for arg in curry]  # type: ignore[no-untyped-call]
-    solution = parse_program(solution)
+    parsed_tail: Program = parse_program(tail)
+    curried_args = [assemble(arg) for arg in curry]
+    parsed_solution: Program = parse_program(solution)
     inner_address = decode_puzzle_hash(send_to)
     address = inner_address
 
     # Potentially wrap address in CR layer
-    extra_conditions: List[Program] = []
+    extra_conditions: list[Program] = []
     if len(authorized_provider) > 0:
         ap_bytes = [bytes32(decode_puzzle_hash(ap)) for ap in authorized_provider]
-        proofs_checker: Program
+        # proofs_checker: Program
         if proofs_checker is not None:
             if len(cr_flag) > 0:
                 print("Cannot specify values for both --proofs-checker and --cr-flag")
                 return
-            proofs_checker = parse_program(proofs_checker)
+            parsed_proofs_checker = parse_program(proofs_checker)
         elif len(cr_flag) > 0:
-            proofs_checker = ProofsChecker(list(cr_flag)).as_program()
+            parsed_proofs_checker = ProofsChecker(list(cr_flag)).as_program()
         else:
             print("Must specify either --proofs-checker or --cr-flag if specifying --authorized-provider")
             return
-        extra_conditions.append(Program.to(
-            [1, inner_address, ap_bytes, proofs_checker]
-        ))
+        extra_conditions.append(Program.to([1, inner_address, ap_bytes, parsed_proofs_checker]))
         address = construct_cr_layer(
             ap_bytes,
-            proofs_checker,
+            parsed_proofs_checker,
             inner_address,  # type: ignore
         ).get_tree_hash_precalc(inner_address)
 
@@ -361,21 +350,28 @@ async def cmd_func(
             [aggregated_signature, G2Element.from_bytes(hexstr_to_bytes(sig))]
         )
 
-    aggregated_spend = SpendBundle([], G2Element())
+    aggregated_spend = WalletSpendBundle([], G2Element())
     for bundle in spend:
-        aggregated_spend = SpendBundle.aggregate(
-            [aggregated_spend, SpendBundle.from_bytes(hexstr_to_bytes(bundle))]
+        aggregated_spend = WalletSpendBundle.aggregate(
+            [aggregated_spend, WalletSpendBundle.from_bytes(hexstr_to_bytes(bundle))]
         )
 
     # Construct the TAIL
     if len(curried_args) > 0:
-        curried_tail = tail.curry(*curried_args)
+        curried_tail = parsed_tail.curry(*curried_args)
     else:
-        curried_tail = tail
+        curried_tail = parsed_tail
 
     # Construct the intermediate puzzle
     p2_puzzle = Program.to(
-        (1, [[51, 0, -113, curried_tail, solution], [51, address, amount, [inner_address]], *extra_conditions])
+        (
+            1,
+            [
+                [51, 0, -113, curried_tail, parsed_solution],
+                [51, address, amount, [inner_address]],
+                *extra_conditions,
+            ],
+        )
     )
 
     # Wrap the intermediate puzzle in a CAT wrapper
@@ -393,18 +389,16 @@ async def cmd_func(
     )
     if signed_tx.spend_bundle is None:
         raise ValueError("Error creating signed transaction")
-    eve_coin = list(
-        filter(lambda c: c.puzzle_hash == cat_ph, signed_tx.spend_bundle.additions())
-    )[0]
+    eve_coin = next(filter(lambda c: c.puzzle_hash == cat_ph, signed_tx.spend_bundle.additions()))
 
     # This is where we exit if we're only looking for the selected coin
     if select_coin:
-        primary_coin = list(
+        primary_coin = next(
             filter(
                 lambda c: c.name() == eve_coin.parent_coin_info,
                 signed_tx.spend_bundle.removals(),
             )
-        )[0]
+        )
         print(json.dumps(primary_coin.to_json_dict(), sort_keys=True, indent=4))
         print(f"Name: {primary_coin.name().hex()}")
         return
@@ -415,38 +409,37 @@ async def cmd_func(
         curried_tail.get_tree_hash(),
         p2_puzzle,
         Program.to([]),
-        limitations_solution=solution,
+        limitations_solution=parsed_solution,
         limitations_program_reveal=curried_tail,
     )
     eve_spend = unsigned_spend_bundle_for_spendable_cats(CAT_MOD, [spendable_eve])
 
     # Aggregate everything together
-    final_bundle = SpendBundle.aggregate(
+    final_bundle = WalletSpendBundle.aggregate(
         [
             signed_tx.spend_bundle,
             eve_spend,
             aggregated_spend,
-            SpendBundle([], aggregated_signature),
+            WalletSpendBundle([], aggregated_signature),
         ]
     )
 
     if as_bytes:
         final_bundle_dump = bytes(final_bundle).hex()
     else:
-        final_bundle_dump = json.dumps(
-            final_bundle.to_json_dict(), sort_keys=True, indent=4
-        )
+        final_bundle_dump = json.dumps(final_bundle.to_json_dict(), sort_keys=True, indent=4)
 
     confirmation = push
 
     if not quiet:
-        confirmation = input(
-            "The transaction has been created, would you like to push it to the network? (Y/N)"
-        ) in ["y", "Y", "yes", "Yes"]
+        confirmation = input("The transaction has been created, would you like to push it to the network? (Y/N)") in {
+            "y",
+            "Y",
+            "yes",
+            "Yes",
+        }
     if confirmation:
-        response = await push_tx(
-            wallet_rpc_port, fingerprint, final_bundle, Path(root_path)
-        )
+        response = await push_tx(wallet_rpc_port, fingerprint, final_bundle, Path(root_path))
         if "error" in response:
             print(f"Error pushing transaction: {response['error']}")
             return
