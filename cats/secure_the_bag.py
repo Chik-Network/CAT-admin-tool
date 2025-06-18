@@ -8,13 +8,13 @@ from typing import Any, Union
 import click
 from chik.types.blockchain_format.coin import Coin
 from chik.types.blockchain_format.program import Program
-from chik.types.blockchain_format.sized_bytes import bytes32
 from chik.types.coin_spend import CoinSpend, make_spend
 from chik.types.condition_opcodes import ConditionOpcode
 from chik.util.bech32m import encode_puzzle_hash
 from chik.util.byte_types import hexstr_to_bytes
-from chik.util.ints import uint64
 from chik.wallet.cat_wallet.cat_utils import CAT_MOD, construct_cat_puzzle
+from chik_rs.sized_bytes import bytes32
+from chik_rs.sized_ints import uint64
 from klvm_tools.binutils import assemble
 from klvm_tools.klvmc import compile_klvm_text
 

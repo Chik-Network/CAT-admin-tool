@@ -6,10 +6,10 @@ import io
 import pytest
 from chik._tests.util.setup_nodes import SimulatorsAndWalletsServices
 from chik.types.blockchain_format.coin import Coin
-from chik.types.blockchain_format.sized_bytes import bytes32
 from chik.types.peer_info import PeerInfo
 from chik.util.bech32m import encode_puzzle_hash
-from chik.util.ints import uint16, uint64
+from chik_rs.sized_bytes import bytes32
+from chik_rs.sized_ints import uint16, uint64
 
 from cats.cats import cmd_func
 

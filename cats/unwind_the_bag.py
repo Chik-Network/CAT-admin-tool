@@ -10,7 +10,7 @@ from typing import Any, Optional
 import click
 from chik.cmds.cmds_util import get_wallet
 from chik.rpc.full_node_rpc_client import FullNodeRpcClient
-from chik.rpc.wallet_request_types import LogIn
+from chik.rpc.wallet_request_types import LogIn, PushTX
 from chik.rpc.wallet_rpc_client import WalletRpcClient
 from chik.types.announcement import Announcement
 from chik.types.blockchain_format.program import Program
@@ -303,13 +303,17 @@ async def app(
                     raise Exception("No spend bundle created")
 
                 await wallet_client.push_tx(
-                    WalletSpendBundle(
-                        cat_spend.coin_spends + fees_tx.signed_tx.spend_bundle.coin_spends,
-                        fees_tx.signed_tx.spend_bundle.aggregated_signature,
+                    PushTX(
+                        WalletSpendBundle(
+                            cat_spend.coin_spends + fees_tx.signed_tx.spend_bundle.coin_spends,
+                            fees_tx.signed_tx.spend_bundle.aggregated_signature,
+                        )
                     )
                 )
             else:
-                await wallet_client.push_tx(WalletSpendBundle(cat_spend.coin_spends, cat_spend.aggregated_signature))
+                await wallet_client.push_tx(
+                    PushTX(WalletSpendBundle(cat_spend.coin_spends, cat_spend.aggregated_signature))
+                )
 
             print("Transaction pushed to full node")
 
@@ -404,13 +408,17 @@ async def app(
                             raise Exception("No spend bundle created")
 
                         await wallet_client.push_tx(
-                            WalletSpendBundle(
-                                bundle_spends + fees_tx.signed_tx.spend_bundle.coin_spends,
-                                fees_tx.signed_tx.spend_bundle.aggregated_signature,
+                            PushTX(
+                                WalletSpendBundle(
+                                    bundle_spends + fees_tx.signed_tx.spend_bundle.coin_spends,
+                                    fees_tx.signed_tx.spend_bundle.aggregated_signature,
+                                )
                             )
                         )
                     else:
-                        await wallet_client.push_tx(WalletSpendBundle(bundle_spends, cat_spend.aggregated_signature))
+                        await wallet_client.push_tx(
+                            PushTX(WalletSpendBundle(bundle_spends, cat_spend.aggregated_signature))
+                        )
 
                     print(
                         f"Transaction containing {len(bundle_spends)} coin spends "

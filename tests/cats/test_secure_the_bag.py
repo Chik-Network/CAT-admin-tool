@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 from chik.types.blockchain_format.program import Program
-from chik.types.blockchain_format.sized_bytes import bytes32
 from chik.types.condition_opcodes import ConditionOpcode
 from chik.util.hash import std_hash
-from chik.util.ints import uint64
 from chik.wallet.cat_wallet.cat_utils import CAT_MOD, construct_cat_puzzle
+from chik_rs.sized_bytes import bytes32
+from chik_rs.sized_ints import uint64
 from klvm.casts import int_to_bytes
 
 from cats.secure_the_bag import (

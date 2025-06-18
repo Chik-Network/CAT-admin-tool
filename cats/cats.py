@@ -10,14 +10,13 @@ from typing import Any, Optional, Union
 
 import click
 from chik.cmds.cmds_util import get_wallet_client
+from chik.rpc.wallet_request_types import PushTX
 from chik.rpc.wallet_rpc_client import WalletRpcClient
 from chik.types.blockchain_format.program import Program
-from chik.types.blockchain_format.sized_bytes import bytes32
 from chik.util.bech32m import decode_puzzle_hash
 from chik.util.byte_types import hexstr_to_bytes
 from chik.util.config import load_config
 from chik.util.default_root import DEFAULT_ROOT_PATH
-from chik.util.ints import uint64
 from chik.wallet.cat_wallet.cat_utils import (
     CAT_MOD,
     SpendableCAT,
@@ -29,6 +28,8 @@ from chik.wallet.util.tx_config import DEFAULT_TX_CONFIG
 from chik.wallet.vc_wallet.cr_cat_drivers import ProofsChecker, construct_cr_layer
 from chik.wallet.wallet_spend_bundle import WalletSpendBundle
 from chik_rs import AugSchemeMPL, G2Element
+from chik_rs.sized_bytes import bytes32
+from chik_rs.sized_ints import uint64
 from klvm_tools.binutils import assemble
 from klvm_tools.klvmc import compile_klvm_text
 
@@ -40,7 +41,7 @@ async def get_context_manager(
 ) -> AsyncIterator[tuple[WalletRpcClient, int, dict[str, Any]]]:
     config = load_config(root_path, "config.yaml")
     wallet_rpc_port = config["wallet"]["rpc_port"] if wallet_rpc_port is None else wallet_rpc_port
-    async with get_wallet_client(wallet_rpc_port, root_path=root_path, fingerprint=fingerprint) as args:
+    async with get_wallet_client(root_path=root_path, wallet_rpc_port=wallet_rpc_port, fingerprint=fingerprint) as args:
         yield args
 
 
@@ -74,7 +75,7 @@ async def push_tx(
         wallet_client, _, _ = client_etc
         if wallet_client is None:
             raise ValueError("Error getting wallet client. Make sure wallet is running.")
-        return await wallet_client.push_tx(bundle)
+        return await wallet_client.push_tx(PushTX(bundle))
 
 
 # The klvm loaders in this library automatically search for includable files in the directory './include'
@@ -439,10 +440,12 @@ async def cmd_func(
             "Yes",
         }
     if confirmation:
-        response = await push_tx(wallet_rpc_port, fingerprint, final_bundle, Path(root_path))
-        if "error" in response:
-            print(f"Error pushing transaction: {response['error']}")
+        try:
+            await push_tx(wallet_rpc_port, fingerprint, final_bundle, Path(root_path))
+        except Exception as e:
+            print(f"Error pushing transaction: {e}")
             return
+
         print("Successfully pushed the transaction to the network")
 
     print(f"Asset ID: {curried_tail.get_tree_hash().hex()}")

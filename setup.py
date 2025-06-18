@@ -8,15 +8,15 @@ with open("README.md") as fh:
     long_description = fh.read()
 
 dependencies = [
-    "chik-blockchain==2.5.0",
+    "chik-blockchain==2.5.4",
 ]
 
 dev_dependencies = [
     "pytest",
-    "pytest-asyncio",
+    "pytest-asyncio>=0.26.0",
     "pytest-env",
-    "pre-commit==4.0.1; python_version >= '3.9'",
-    "mypy==1.13.0",
+    "pre-commit==4.1.0; python_version >= '3.9'",
+    "mypy==1.16.0",
     "ruff>=0.8.1",
 ]
 
