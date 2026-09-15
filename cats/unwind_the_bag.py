@@ -5,20 +5,14 @@ import os
 from collections import defaultdict
 from collections.abc import Coroutine
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import click
 from chik.cmds.cmds_util import get_wallet
-from chik.rpc.full_node_rpc_client import FullNodeRpcClient
-from chik.rpc.wallet_request_types import LogIn, PushTX
-from chik.rpc.wallet_rpc_client import WalletRpcClient
-from chik.types.announcement import Announcement
-from chik.types.blockchain_format.program import Program
-from chik.types.blockchain_format.sized_bytes import bytes32
-from chik.types.coin_spend import CoinSpend
+from chik.full_node.full_node_rpc_client import FullNodeRpcClient
+from chik.types.blockchain_format.program import Program, run_with_cost
 from chik.util.bech32m import decode_puzzle_hash
 from chik.util.config import load_config
-from chik.util.ints import uint32, uint64
 from chik.wallet.cat_wallet.cat_utils import (
     CAT_MOD,
     SpendableCAT,
@@ -26,11 +20,23 @@ from chik.wallet.cat_wallet.cat_utils import (
     match_cat_puzzle,
     unsigned_spend_bundle_for_spendable_cats,
 )
+from chik.wallet.conditions import AssertAnnouncement
 from chik.wallet.lineage_proof import LineageProof
 from chik.wallet.uncurried_puzzle import uncurry_puzzle
 from chik.wallet.util.tx_config import DEFAULT_COIN_SELECTION_CONFIG, DEFAULT_TX_CONFIG
+from chik.wallet.wallet_request_types import (
+    Addition,
+    CreateSignedTransaction,
+    GetNextAddress,
+    LogIn,
+    PushTX,
+    SelectCoins,
+)
+from chik.wallet.wallet_rpc_client import WalletRpcClient
 from chik.wallet.wallet_spend_bundle import WalletSpendBundle
-from chik_rs import G2Element
+from chik_rs import CoinSpend, G2Element
+from chik_rs.sized_bytes import bytes32
+from chik_rs.sized_ints import uint32, uint64
 
 from cats.secure_the_bag import (
     TargetCoin,
@@ -153,7 +159,7 @@ async def unwind_coin_spend(
     # Wait for unspent coin to exist before trying to spend it
     await wait_for_unspent_coin(full_node_client, coin_spend.coin.name())
 
-    curried_args = match_cat_puzzle(uncurry_puzzle(coin_spend.puzzle_reveal.to_program()))
+    curried_args = match_cat_puzzle(uncurry_puzzle(coin_spend.puzzle_reveal))
 
     if curried_args is None:
         raise Exception("Expected CAT")
@@ -170,7 +176,7 @@ async def unwind_coin_spend(
     if parent is None:
         raise Exception("Parent coin does not exist")
 
-    parent_curried_args = match_cat_puzzle(uncurry_puzzle(parent.puzzle_reveal.to_program()))
+    parent_curried_args = match_cat_puzzle(uncurry_puzzle(parent.puzzle_reveal))
 
     if parent_curried_args is None:
         raise Exception("Expected parent to be CAT")
@@ -191,7 +197,7 @@ async def unwind_coin_spend(
     cat_spend = unsigned_spend_bundle_for_spendable_cats(CAT_MOD, [spendable_cat])
 
     # Throw an error before pushing to full node if spend is invalid
-    _ = cat_spend.coin_spends[0].puzzle_reveal.run_with_cost(0, cat_spend.coin_spends[0].solution)
+    _ = run_with_cost(cat_spend.coin_spends[0].puzzle_reveal, 0, cat_spend.coin_spends[0].solution)
 
     return cat_spend
 
@@ -229,7 +235,7 @@ async def app(
     secure_the_bag_targets_path: str,
     leaf_width: int,
     tail_hash_bytes: bytes32,
-    unwind_target_puzzle_hash_bytes: Optional[bytes32],
+    unwind_target_puzzle_hash_bytes: bytes32 | None,
     genesis_coin_id: bytes32,
     fingerprint: int,
     wallet_id: int,
@@ -249,7 +255,7 @@ async def app(
     )
     if fingerprint is not None:
         print(f"Setting fingerprint: {fingerprint}")
-        await wallet_client.log_in(LogIn(uint32(fingerprint)))
+        await wallet_client.log_in(LogIn(fingerprint=uint32(fingerprint)))
 
     targets = read_secure_the_bag_targets(secure_the_bag_targets_path, None)
     _, parent_puzzle_lookup = secure_the_bag(targets, leaf_width, tail_hash_bytes)
@@ -276,25 +282,39 @@ async def app(
             )
 
             if unwind_fee > 0:
-                fee_coins = await wallet_client.select_coins(
-                    amount=unwind_fee,
-                    wallet_id=wallet_id,
-                    coin_selection_config=DEFAULT_COIN_SELECTION_CONFIG,
+                fee_coins_response = await wallet_client.select_coins(
+                    request=SelectCoins.from_coin_selection_config(
+                        amount=uint64(unwind_fee),
+                        wallet_id=uint32(wallet_id),
+                        coin_selection_config=DEFAULT_COIN_SELECTION_CONFIG,
+                    )
                 )
+
+                fee_coins = fee_coins_response.coins
                 change_amount = sum([c.amount for c in fee_coins]) - unwind_fee
-                change_address = await wallet_client.get_next_address(wallet_id=wallet_id, new_address=False)
-                change_ph = decode_puzzle_hash(change_address)
+                change_address = await wallet_client.get_next_address(
+                    request=GetNextAddress(wallet_id=uint32(wallet_id), new_address=False)
+                )
+                change_ph = decode_puzzle_hash(change_address.address)
 
                 # Fees depend on announcements made by secure the bag CATs to ensure they can't be seperated
-                cat_announcements: list[Announcement] = []
+                cat_announcements: list[AssertAnnouncement] = []
                 for coin_spend in cat_spend.coin_spends:
-                    cat_announcements.append(Announcement(coin_spend.coin.name(), b"$"))
+                    cat_announcements.append(
+                        AssertAnnouncement(
+                            coin_not_puzzle=True,
+                            asserted_origin_id=coin_spend.coin.name(),
+                            asserted_msg=b"$",
+                        )
+                    )
 
                 # Create signed coin spends and change for fees
                 fees_tx = await wallet_client.create_signed_transactions(
-                    [{"amount": change_amount, "puzzle_hash": change_ph}],
-                    coins=fee_coins,
-                    fee=uint64(unwind_fee),
+                    CreateSignedTransaction(
+                        additions=[Addition(amount=uint64(change_amount), puzzle_hash=change_ph)],
+                        coins=fee_coins,
+                        fee=uint64(unwind_fee),
+                    ),
                     extra_conditions=(*cat_announcements,),
                     tx_config=DEFAULT_TX_CONFIG,
                 )
@@ -304,7 +324,7 @@ async def app(
 
                 await wallet_client.push_tx(
                     PushTX(
-                        WalletSpendBundle(
+                        spend_bundle=WalletSpendBundle(
                             cat_spend.coin_spends + fees_tx.signed_tx.spend_bundle.coin_spends,
                             fees_tx.signed_tx.spend_bundle.aggregated_signature,
                         )
@@ -312,7 +332,7 @@ async def app(
                 )
             else:
                 await wallet_client.push_tx(
-                    PushTX(WalletSpendBundle(cat_spend.coin_spends, cat_spend.aggregated_signature))
+                    PushTX(spend_bundle=WalletSpendBundle(cat_spend.coin_spends, cat_spend.aggregated_signature))
                 )
 
             print("Transaction pushed to full node")
@@ -382,25 +402,38 @@ async def app(
                     if unwind_fee > 0:
                         spend_bundle_fee = len(bundle_spends) * unwind_fee
 
-                        fee_coins = await wallet_client.select_coins(
-                            amount=spend_bundle_fee,
-                            wallet_id=wallet_id,
-                            coin_selection_config=DEFAULT_COIN_SELECTION_CONFIG,
+                        fee_coins_response = await wallet_client.select_coins(
+                            request=SelectCoins.from_coin_selection_config(
+                                amount=uint64(spend_bundle_fee),
+                                wallet_id=uint32(wallet_id),
+                                coin_selection_config=DEFAULT_COIN_SELECTION_CONFIG,
+                            )
                         )
+                        fee_coins = fee_coins_response.coins
                         change_amount = sum([c.amount for c in fee_coins]) - spend_bundle_fee
-                        change_address = await wallet_client.get_next_address(wallet_id=wallet_id, new_address=False)
-                        change_ph = decode_puzzle_hash(change_address)
+                        change_address = await wallet_client.get_next_address(
+                            request=GetNextAddress(wallet_id=uint32(wallet_id), new_address=False)
+                        )
+                        change_ph = decode_puzzle_hash(change_address.address)
 
                         # Fees depend on announcements made by secure the bag CATs to ensure they can't be seperated
                         cat_announcements = []
                         for coin_spend in bundle_spends:
-                            cat_announcements.append(Announcement(coin_spend.coin.name(), b"$"))
+                            cat_announcements.append(
+                                AssertAnnouncement(
+                                    coin_not_puzzle=True,
+                                    asserted_origin_id=coin_spend.coin.name(),
+                                    asserted_msg=b"$",
+                                )
+                            )
 
                         # Create signed coin spends and change for fees
                         fees_tx = await wallet_client.create_signed_transactions(
-                            [{"amount": change_amount, "puzzle_hash": change_ph}],
-                            coins=fee_coins,
-                            fee=uint64(spend_bundle_fee),
+                            CreateSignedTransaction(
+                                additions=[Addition(amount=uint64(change_amount), puzzle_hash=change_ph)],
+                                coins=fee_coins,
+                                fee=uint64(spend_bundle_fee),
+                            ),
                             extra_conditions=(*cat_announcements,),
                             tx_config=DEFAULT_TX_CONFIG,
                         )
@@ -409,7 +442,7 @@ async def app(
 
                         await wallet_client.push_tx(
                             PushTX(
-                                WalletSpendBundle(
+                                spend_bundle=WalletSpendBundle(
                                     bundle_spends + fees_tx.signed_tx.spend_bundle.coin_spends,
                                     fees_tx.signed_tx.spend_bundle.aggregated_signature,
                                 )
@@ -417,7 +450,7 @@ async def app(
                         )
                     else:
                         await wallet_client.push_tx(
-                            PushTX(WalletSpendBundle(bundle_spends, cat_spend.aggregated_signature))
+                            PushTX(spend_bundle=WalletSpendBundle(bundle_spends, cat_spend.aggregated_signature))
                         )
 
                     print(

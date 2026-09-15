@@ -6,10 +6,10 @@ on:
     branches:
       - main
     tags:
-        - '**'
+      - "**"
   pull_request:
     branches:
-      - '**'
+      - "**"
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}-${{ github.event_name }}--${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/long_lived/')) && github.sha || '' }}
@@ -26,42 +26,42 @@ jobs:
 
     env:
       CHIK_ROOT: ${{ github.workspace }}/.chik/mainnet
-      BLOCKS_AND_PLOTS_VERSION: 0.29.0
+      BLOCKS_AND_PLOTS_VERSION: 0.45.8
 
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
-    - name: Setup Python environment
-      uses: actions/setup-python@v5
-      with:
-        python-version: 3.9
+      - name: Setup Python environment
+        uses: Chik-Network/actions/setup-python@main
+        with:
+          python-version: 3.12
 
-    - name: Cache test blocks and plots
-      uses: actions/cache@v4
-      env:
-        SEGMENT_DOWNLOAD_TIMEOUT_MIN: 1
-      id: test-blocks-plots
-      with:
-        path: |
-          ${{ github.workspace }}/.chik/blocks
-          ${{ github.workspace }}/.chik/test-plots
-        key: ${{ env.BLOCKS_AND_PLOTS_VERSION }}
+      - name: Cache test blocks and plots
+        uses: actions/cache@v6
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MIN: 1
+        id: test-blocks-plots
+        with:
+          path: |
+            ${{ github.workspace }}/.chik/blocks
+            ${{ github.workspace }}/.chik/test-plots
+          key: ${{ env.BLOCKS_AND_PLOTS_VERSION }}
 
-    - name: Checkout test blocks and plots
-      if: steps.test-blocks-plots.outputs.cache-hit != 'true'
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        gh release download -R Chik-Network/test-cache ${{ env.BLOCKS_AND_PLOTS_VERSION }} --archive=tar.gz -O - | tar xzf -
-        mkdir "${GITHUB_WORKSPACE}/.chik"
-        mv "${GITHUB_WORKSPACE}/test-cache-${{ env.BLOCKS_AND_PLOTS_VERSION }}/"* "${GITHUB_WORKSPACE}/.chik"
+      - name: Checkout test blocks and plots
+        if: steps.test-blocks-plots.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download -R Chik-Network/test-cache ${{ env.BLOCKS_AND_PLOTS_VERSION }} --archive=tar.gz -O - | tar xzf -
+          mkdir "${GITHUB_WORKSPACE}/.chik"
+          mv "${GITHUB_WORKSPACE}/test-cache-${{ env.BLOCKS_AND_PLOTS_VERSION }}/"* "${GITHUB_WORKSPACE}/.chik"
 
-    - name: Test code with pytest
-      run: |
-        python3 -m venv venv
-        . ./venv/bin/activate
-        pip install .[dev]
-        ./venv/bin/pytest tests/ -s -v --durations 0
+      - name: Test code with pytest
+        run: |
+          python3 -m venv venv
+          . ./venv/bin/activate
+          pip install .[dev]
+          ./venv/bin/pytest tests/ -s -v --durations 0

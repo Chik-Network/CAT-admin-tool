@@ -7,7 +7,7 @@ from chik.util.hash import std_hash
 from chik.wallet.cat_wallet.cat_utils import CAT_MOD, construct_cat_puzzle
 from chik_rs.sized_bytes import bytes32
 from chik_rs.sized_ints import uint64
-from klvm.casts import int_to_bytes
+from clvk.casts import int_to_bytes
 
 from cats.secure_the_bag import (
     Target,

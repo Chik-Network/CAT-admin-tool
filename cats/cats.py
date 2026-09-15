@@ -6,12 +6,10 @@ import re
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 import click
 from chik.cmds.cmds_util import get_wallet_client
-from chik.rpc.wallet_request_types import PushTX
-from chik.rpc.wallet_rpc_client import WalletRpcClient
 from chik.types.blockchain_format.program import Program
 from chik.util.bech32m import decode_puzzle_hash
 from chik.util.byte_types import hexstr_to_bytes
@@ -26,18 +24,20 @@ from chik.wallet.cat_wallet.cat_utils import (
 from chik.wallet.transaction_record import TransactionRecord
 from chik.wallet.util.tx_config import DEFAULT_TX_CONFIG
 from chik.wallet.vc_wallet.cr_cat_drivers import ProofsChecker, construct_cr_layer
+from chik.wallet.wallet_request_types import Addition, CreateSignedTransaction, PushTX
+from chik.wallet.wallet_rpc_client import WalletRpcClient
 from chik.wallet.wallet_spend_bundle import WalletSpendBundle
 from chik_rs import AugSchemeMPL, G2Element
 from chik_rs.sized_bytes import bytes32
 from chik_rs.sized_ints import uint64
-from klvm_tools.binutils import assemble
-from klvm_tools.klvmc import compile_klvm_text
+from clvk_tools.binutils import assemble
+from clvk_tools.clvkc import compile_clvk_text
 
 
 # Loading the client requires the standard chik root directory configuration that all of the chik commands rely on
 @asynccontextmanager
 async def get_context_manager(
-    wallet_rpc_port: Optional[int], fingerprint: int, root_path: Path
+    wallet_rpc_port: int | None, fingerprint: int, root_path: Path
 ) -> AsyncIterator[tuple[WalletRpcClient, int, dict[str, Any]]]:
     config = load_config(root_path, "config.yaml")
     wallet_rpc_port = config["wallet"]["rpc_port"] if wallet_rpc_port is None else wallet_rpc_port
@@ -46,7 +46,7 @@ async def get_context_manager(
 
 
 async def get_signed_tx(
-    wallet_rpc_port: Optional[int],
+    wallet_rpc_port: int | None,
     fingerprint: int,
     ph: bytes32,
     amt: uint64,
@@ -58,15 +58,14 @@ async def get_signed_tx(
         if wallet_client is None:
             raise ValueError("Error getting wallet client. Make sure wallet is running.")
         signed_tx = await wallet_client.create_signed_transactions(
-            [{"puzzle_hash": ph, "amount": amt}],
-            DEFAULT_TX_CONFIG,
-            fee=fee,  # TODO: no default tx config
+            CreateSignedTransaction(additions=[Addition(amount=amt, puzzle_hash=ph)], fee=fee),
+            tx_config=DEFAULT_TX_CONFIG,
         )
         return signed_tx.signed_tx
 
 
 async def push_tx(
-    wallet_rpc_port: Optional[int],
+    wallet_rpc_port: int | None,
     fingerprint: int,
     bundle: WalletSpendBundle,
     root_path: Path,
@@ -75,10 +74,10 @@ async def push_tx(
         wallet_client, _, _ = client_etc
         if wallet_client is None:
             raise ValueError("Error getting wallet client. Make sure wallet is running.")
-        return await wallet_client.push_tx(PushTX(bundle))
+        return await wallet_client.push_tx(PushTX(spend_bundle=bundle))
 
 
-# The klvm loaders in this library automatically search for includable files in the directory './include'
+# The clvk loaders in this library automatically search for includable files in the directory './include'
 def append_include(search_paths: Iterable[str]) -> list[str]:
     if search_paths:
         search_list = list(search_paths)
@@ -88,12 +87,12 @@ def append_include(search_paths: Iterable[str]) -> list[str]:
         return ["./include"]
 
 
-def parse_program(program: Union[str, Program], include: Iterable[str] = []) -> Program:
+def parse_program(program: str | Program, include: Iterable[str] = []) -> Program:
     prog: Program
     if isinstance(program, Program):
         return program
     else:
-        if "(" in program:  # If it's raw klvm
+        if "(" in program:  # If it's raw clvk
             prog = Program.to(assemble(program))
         elif "." not in program:  # If it's a byte string
             prog = Program.from_bytes(hexstr_to_bytes(program))
@@ -104,11 +103,11 @@ def parse_program(program: Union[str, Program], include: Iterable[str] = []) -> 
                     # TODO: This should probably be more robust
                     if re.compile(r"\(mod\s").search(filestring):  # If it's Chiklisp
                         prog = Program.to(
-                            compile_klvm_text(filestring, append_include(include))  # type: ignore[no-untyped-call]
+                            compile_clvk_text(filestring, append_include(include))  # type: ignore[no-untyped-call]
                         )
-                    else:  # If it's KLVM
+                    else:  # If it's CLVK
                         prog = Program.to(assemble(filestring))
-                else:  # If it's serialized KLVM
+                else:  # If it's serialized CLVK
                     prog = Program.from_bytes(hexstr_to_bytes(filestring))
         return prog
 
@@ -255,7 +254,7 @@ def cli(
     amount: int,
     fee: int,
     authorized_provider: list[str],
-    proofs_checker: Optional[str],
+    proofs_checker: str | None,
     cr_flag: list[str],
     fingerprint: int,
     signature: list[str],
@@ -265,7 +264,7 @@ def cli(
     quiet: bool,
     push: bool,
     root_path: str,
-    wallet_rpc_port: Optional[int],
+    wallet_rpc_port: int | None,
 ) -> None:
     ctx.ensure_object(dict)
 
@@ -301,7 +300,7 @@ async def cmd_func(
     amount: int,
     fee: int,
     authorized_provider: list[str],
-    proofs_checker: Optional[str],
+    proofs_checker: str | None,
     cr_flag: list[str],
     fingerprint: int,
     signature: list[str],
@@ -311,7 +310,7 @@ async def cmd_func(
     quiet: bool,
     push: bool,
     root_path: str,
-    wallet_rpc_port: Optional[int],
+    wallet_rpc_port: int | None,
 ) -> None:
     parsed_tail: Program = parse_program(tail)
     curried_args = [assemble(arg) for arg in curry]

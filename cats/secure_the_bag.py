@@ -3,27 +3,28 @@ from __future__ import annotations
 import csv
 import re
 from collections.abc import Iterable
-from typing import Any, Union
+from typing import Any
 
 import click
 from chik.types.blockchain_format.coin import Coin
 from chik.types.blockchain_format.program import Program
-from chik.types.coin_spend import CoinSpend, make_spend
+from chik.types.coin_spend import make_spend
 from chik.types.condition_opcodes import ConditionOpcode
 from chik.util.bech32m import encode_puzzle_hash
 from chik.util.byte_types import hexstr_to_bytes
 from chik.wallet.cat_wallet.cat_utils import CAT_MOD, construct_cat_puzzle
+from chik_rs import CoinSpend
 from chik_rs.sized_bytes import bytes32
 from chik_rs.sized_ints import uint64
-from klvm_tools.binutils import assemble
-from klvm_tools.klvmc import compile_klvm_text
+from clvk_tools.binutils import assemble
+from clvk_tools.clvkc import compile_clvk_text
 
 # Fees spend asserts this. Message not required as inner puzzle contains hardcoded coin spends
 # and doesn't accept a solution.
 EMPTY_COIN_ANNOUNCEMENT = [ConditionOpcode.CREATE_COIN_ANNOUNCEMENT, b"$"]
 
 
-# The klvm loaders in this library automatically search for includable files in the directory './include'
+# The clvk loaders in this library automatically search for includable files in the directory './include'
 def append_include(search_paths: Iterable[str]) -> list[str]:
     if search_paths:
         search_list = list(search_paths)
@@ -33,12 +34,12 @@ def append_include(search_paths: Iterable[str]) -> list[str]:
         return ["./include"]
 
 
-def parse_program(program: Union[str, Program], include: Iterable[str] = []) -> Program:
+def parse_program(program: str | Program, include: Iterable[str] = []) -> Program:
     prog: Program
     if isinstance(program, Program):
         return program
     else:
-        if "(" in program:  # If it's raw klvm
+        if "(" in program:  # If it's raw clvk
             prog = Program.to(assemble(program))
         elif "." not in program:  # If it's a byte string
             prog = Program.from_bytes(hexstr_to_bytes(program))
@@ -49,11 +50,11 @@ def parse_program(program: Union[str, Program], include: Iterable[str] = []) -> 
                     # TODO: This should probably be more robust
                     if re.compile(r"\(mod\s").search(filestring):  # If it's Chiklisp
                         prog = Program.to(
-                            compile_klvm_text(filestring, append_include(include))  # type: ignore[no-untyped-call]
+                            compile_clvk_text(filestring, append_include(include))  # type: ignore[no-untyped-call]
                         )
-                    else:  # If it's KLVM
+                    else:  # If it's CLVK
                         prog = Program.to(assemble(filestring))
-                else:  # If it's serialized KLVM
+                else:  # If it's serialized CLVK
                     prog = Program.from_bytes(hexstr_to_bytes(filestring))
         return prog
 
@@ -108,7 +109,7 @@ def batch_the_bag(targets: list[Target], leaf_width: int) -> list[list[Target]]:
 def secure_the_bag(
     targets: list[Target],
     leaf_width: int,
-    asset_id: Union[bytes32, None] = None,
+    asset_id: bytes32 | None = None,
     parent_puzzle_lookup: dict[str, TargetCoin] = {},
 ) -> tuple[bytes32, dict[str, TargetCoin]]:
     """
@@ -168,8 +169,8 @@ def parent_of_puzzle_hash(
     genesis_coin_name: bytes32,
     puzzle_hash: bytes32,
     parent_puzzle_lookup: dict[str, TargetCoin],
-) -> tuple[Union[CoinSpend, None], bytes32]:
-    parent: Union[TargetCoin, None] = parent_puzzle_lookup.get(puzzle_hash.hex())
+) -> tuple[CoinSpend | None, bytes32]:
+    parent: TargetCoin | None = parent_puzzle_lookup.get(puzzle_hash.hex())
 
     if parent is None:
         return None, genesis_coin_name
@@ -182,7 +183,7 @@ def parent_of_puzzle_hash(
     return make_spend(coin, parent.puzzle, Program.to([])), coin.name()
 
 
-def read_secure_the_bag_targets(secure_the_bag_targets_path: str, target_amount: Union[int, None]) -> list[Target]:
+def read_secure_the_bag_targets(secure_the_bag_targets_path: str, target_amount: int | None) -> list[Target]:
     """
     Reads secure the bag targets file. Validates the net amount sent to targets is equal to the target amount.
     """
