@@ -22,7 +22,7 @@ classifiers = [
     "Topic :: Security :: Cryptography",
 ]
 dependencies = [
-    "chik-blockchain @ git+https://github.com/Chik-Network/chik-blockchain@a10d85966322d9e7863a48abb5c854a219f18ba8",
+    "chik-blockchain @ git+https://github.com/Chik-Network/chik-blockchain@03a1cc10ae4cdff83aa370b4904e19c7a2042cbe",
 ]
 optional-dependencies = { dev = [
     "pytest",
